@@ -27,6 +27,36 @@ user32.keybd_event.argtypes = (ctypes.c_ubyte, ctypes.c_ubyte, wintypes.DWORD,
                               ctypes.c_void_p)
 
 
+class KEYBDINPUT(ctypes.Structure):
+    _fields_ = [("wVk", wintypes.WORD), ("wScan", wintypes.WORD),
+                ("dwFlags", wintypes.DWORD), ("time", wintypes.DWORD),
+                ("dwExtraInfo", wintypes.WPARAM)]
+
+
+class MOUSEINPUT(ctypes.Structure):
+    _fields_ = [("dx", wintypes.LONG), ("dy", wintypes.LONG),
+                ("mouseData", wintypes.DWORD), ("dwFlags", wintypes.DWORD),
+                ("time", wintypes.DWORD), ("dwExtraInfo", wintypes.WPARAM)]
+
+
+class HARDWAREINPUT(ctypes.Structure):
+    _fields_ = [("uMsg", wintypes.DWORD), ("wParamL", wintypes.WORD),
+                ("wParamH", wintypes.WORD)]
+
+
+class INPUTUNION(ctypes.Union):
+    _fields_ = [("ki", KEYBDINPUT), ("mi", MOUSEINPUT), ("hi", HARDWAREINPUT)]
+
+
+class INPUT(ctypes.Structure):
+    _anonymous_ = ("data",)
+    _fields_ = [("type", wintypes.DWORD), ("data", INPUTUNION)]
+
+
+user32.SendInput.argtypes = (wintypes.UINT, ctypes.POINTER(INPUT), ctypes.c_int)
+user32.SendInput.restype = wintypes.UINT
+
+
 def hotkey_listener(events):
     # 在线程中接收 Win32 消息，Tk 窗口只由主线程操作。
     registered = []
@@ -89,7 +119,7 @@ def main():
                 root.after(30, save_selection, sequence, category_id, attempts + 1)
                 return
             pending = False
-            show_toast("保存失败", "未复制到选中的文字", False)
+            show_toast("保存失败", "没有复制到选中文字。请确认 Anki 中选中的文字可复制，再重试。", False)
             return
         pending = False
         try:
@@ -117,9 +147,16 @@ def main():
                 show_toast("保存失败", "请松开快捷键后重试", False)
             return
         sequence = user32.GetClipboardSequenceNumber()
-        for key, flags in ((0x11, 0), (0x43, 0), (0x43, 2), (0x11, 2)):
-            user32.keybd_event(key, 0, flags, None)
-        root.after(30, save_selection, sequence, category_id)
+        events = (INPUT * 4)()
+        for event, key, flags in zip(events, (0x11, 0x43, 0x43, 0x11), (0, 0, 2, 2)):
+            event.type = 1
+            event.ki = KEYBDINPUT(key, 0, flags, 0, 0)
+        sent = user32.SendInput(4, events, ctypes.sizeof(INPUT))
+        if sent != 4:
+            # 某些旧应用对 SendInput 响应不一致时，退回 keybd_event。
+            for key, flags in ((0x11, 0), (0x43, 0), (0x43, 2), (0x11, 2)):
+                user32.keybd_event(key, 0, flags, None)
+        root.after(40, save_selection, sequence, category_id)
 
     def poll():
         nonlocal pending

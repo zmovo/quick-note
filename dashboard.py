@@ -197,7 +197,6 @@ class Dashboard:
         popup.resizable(False, False)
         panel = tk.Frame(popup, bg="white", padx=20, pady=16)
         panel.pack(fill="both", expand=True)
-        label(panel, "快捷键", 14, bold=True, bg="white").pack(anchor="w", pady=(0, 10))
         for key, action in (("Alt+1", "记录需要复习的内容"), ("Alt+2", "记录待补全的内容"),
                             ("Alt+3", "打开总览"), ("Esc", "关闭总览")):
             row = tk.Frame(panel, bg="white")
