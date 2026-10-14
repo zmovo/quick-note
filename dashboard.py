@@ -14,6 +14,12 @@ def label(parent, text, size=11, color=INK, bold=False, bg=BG):
                     font=(FONT, size, "bold" if bold else "normal"), anchor="w")
 
 
+def button(parent, text, command):
+    return tk.Button(parent, text=text, command=command, bg="white", fg="#505866",
+                     activebackground="#edf0f5", relief="flat", bd=0, padx=12, pady=6,
+                     cursor="hand2", font=(FONT, 10))
+
+
 class RecordColumn:
     def __init__(self, parent, title, color, column):
         self.frame = tk.Frame(parent, bg=BG)
