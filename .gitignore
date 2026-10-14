@@ -1,0 +1,5 @@
+# 用户记录和本地 Python 缓存不进入代码仓库
+records/
+backup/
+__pycache__/
+*.py[cod]

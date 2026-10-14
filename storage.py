@@ -1,0 +1,43 @@
+"""按本地日期保存和读取两类 Markdown 记录。"""
+from __future__ import annotations
+
+import re
+from datetime import datetime
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent / "records"
+FILES = {"今日学习": "今日学习.md", "待补齐": "待补齐.md"}
+ENTRY = re.compile(r"(?m)^## (\d{4}-\d{2}-\d{2}) (\d{2}:\d{2})(?:[^\n]*)\n")
+
+
+def save(category: str, content: str) -> Path:
+    now = datetime.now()
+    folder = ROOT / now.date().isoformat()
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / FILES[category]
+    with path.open("a", encoding="utf-8", newline="\n") as file:
+        file.write(f"## {now:%Y-%m-%d %H:%M}\n{content}\n\n")
+    return path
+
+
+def parse_entries(text: str) -> list[tuple[str, str]]:
+    matches = list(ENTRY.finditer(text))
+    return [(f"{match[1]} {match[2]}", text[match.end():
+             matches[index + 1].start() if index + 1 < len(matches) else len(text)].strip())
+            for index, match in enumerate(matches)]
+
+
+def load_days() -> dict[str, dict[str, list[tuple[str, str]]]]:
+    result = {}
+    if not ROOT.exists():
+        return result
+    for folder in ROOT.iterdir():
+        if not folder.is_dir() or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", folder.name):
+            continue
+        categories = {}
+        for category, filename in FILES.items():
+            path = folder / filename
+            categories[category] = parse_entries(path.read_text(encoding="utf-8")) if path.exists() else []
+        if any(categories.values()):
+            result[folder.name] = categories
+    return dict(sorted(result.items(), reverse=True))
