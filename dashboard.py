@@ -42,6 +42,7 @@ class RecordColumn:
         self.cards.bind("<Configure>", lambda _: self.canvas.configure(scrollregion=self.canvas.bbox("all")))
         self.canvas.bind("<MouseWheel>", self.scroll)
         self.areas = []
+        self.selected_card = None
 
     def scroll(self, event):
         self.canvas.yview_scroll(-int(event.delta / 120), "units")
@@ -63,15 +64,21 @@ class RecordColumn:
         for child in self.cards.winfo_children():
             child.destroy()
         self.areas = []
+        self.selected_card = None
         self.count.configure(text=str(len(entries)))
         if not entries:
             label(self.cards, "这一天还没有记录", 11, MUTED).pack(anchor="w", pady=24)
         for stamp, content in entries:
             card = tk.Frame(self.cards, bg="white", highlightbackground="#e6e9ee", highlightthickness=1)
             card.pack(fill="x", pady=(0, 12), padx=(0, 4))
+            card.bind("<Button-1>", lambda _, target=card: self.select_card(target))
             top = tk.Frame(card, bg="white", padx=16, pady=8)
             top.pack(fill="x")
-            label(top, stamp[11:], 10, MUTED, bg="white").pack(side="left")
+            time_label = label(top, stamp[11:], 10, MUTED, bg="white")
+            time_label.pack(side="left")
+            time_label.configure(cursor="hand2")
+            time_label.bind("<Button-1>", lambda _, target=card: self.select_card(target))
+            top.bind("<Button-1>", lambda _, target=card: self.select_card(target))
             copy = button(top, "复制", lambda value=content: self.copy(value))
             copy.configure(padx=4, pady=0)
             copy.pack(side="right")
@@ -85,6 +92,7 @@ class RecordColumn:
             area.pack(fill="x", pady=(0, 12))
             self.areas.append(area)
             area.bind("<Configure>", lambda _, widget=area: widget.after_idle(self.fit_text))
+            area.bind("<Button-1>", lambda _, target=card: self.select_card(target))
             for widget in (card, top, area):
                 widget.bind("<MouseWheel>", self.scroll)
         self.canvas.yview_moveto(0)
@@ -93,6 +101,12 @@ class RecordColumn:
     def copy(self, content):
         self.frame.clipboard_clear()
         self.frame.clipboard_append(content)
+
+    def select_card(self, card):
+        if self.selected_card and self.selected_card.winfo_exists():
+            self.selected_card.configure(highlightbackground="#e6e9ee", highlightthickness=1)
+        self.selected_card = card
+        card.configure(highlightbackground="#7896c6", highlightthickness=2)
 
 
 class Dashboard:
@@ -124,7 +138,8 @@ class Dashboard:
         self.help_icon.pack(anchor="w", pady=(14, 0))
         self.help_icon.create_oval(3, 3, 31, 31, outline="#aeb6c2", width=1.5)
         self.help_icon.create_text(17, 17, text="?", fill="#596577", font=(FONT, 13, "bold"))
-        self.help_icon.bind("<Button-1>", lambda _: self.show_shortcuts())
+        self.help_icon.bind("<Button-1>", lambda _: self.toggle_shortcuts())
+        self.window.bind("<Button-1>", self.dismiss_shortcuts, add="+")
 
         main = tk.Frame(self.window, bg=BG, padx=28, pady=22)
         main.pack(side="left", fill="both", expand=True)
@@ -190,6 +205,7 @@ class Dashboard:
         if getattr(self, "shortcut_window", None) and self.shortcut_window.winfo_exists():
             self.shortcut_window.deiconify()
             self.shortcut_window.lift()
+            self.shortcut_window.focus_force()
             return
         popup = self.shortcut_window = tk.Toplevel(self.window)
         popup.title("快捷键")
@@ -204,7 +220,34 @@ class Dashboard:
             label(row, key, 10, "#315e9b", True, "white").pack(side="left", padx=(0, 16))
             label(row, action, 10, bg="white").pack(side="left")
         popup.bind("<Escape>", lambda _: popup.destroy())
+        popup.bind("<FocusOut>", lambda _: popup.after(100, self.close_shortcuts_if_unfocused))
         popup.geometry(f"+{self.help_icon.winfo_rootx()+40}+{self.help_icon.winfo_rooty()-100}")
+        popup.focus_force()
+
+    def toggle_shortcuts(self):
+        if getattr(self, "shortcut_window", None) and self.shortcut_window.winfo_exists():
+            self.shortcut_window.destroy()
+        else:
+            self.show_shortcuts()
+
+    def dismiss_shortcuts(self, event):
+        if event.widget is not self.help_icon:
+            self.close_shortcuts()
+
+    def close_shortcuts_if_unfocused(self):
+        popup = getattr(self, "shortcut_window", None)
+        if popup and popup.winfo_exists():
+            try:
+                focus = popup.focus_get()
+            except tk.TclError:
+                focus = None
+            if focus is None or not str(focus).startswith(str(popup)):
+                popup.destroy()
+
+    def close_shortcuts(self):
+        popup = getattr(self, "shortcut_window", None)
+        if popup and popup.winfo_exists():
+            popup.destroy()
 
     def show(self):
         if self.trend_visible:
