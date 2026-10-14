@@ -198,7 +198,7 @@ class Dashboard:
         panel = tk.Frame(popup, bg="white", padx=20, pady=16)
         panel.pack(fill="both", expand=True)
         for key, action in (("Alt+1", "记录需要复习的内容"), ("Alt+2", "记录待补全的内容"),
-                            ("Alt+3", "打开总览"), ("Esc", "关闭总览")):
+                            ("Alt+3", "打开总览")):
             row = tk.Frame(panel, bg="white")
             row.pack(fill="x", pady=4)
             label(row, key, 10, "#315e9b", True, "white").pack(side="left", padx=(0, 16))
