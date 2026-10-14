@@ -14,14 +14,8 @@ def label(parent, text, size=11, color=INK, bold=False, bg=BG):
                     font=(FONT, size, "bold" if bold else "normal"), anchor="w")
 
 
-def button(parent, text, command):
-    return tk.Button(parent, text=text, command=command, bg="white", fg="#505866",
-                     activebackground="#edf0f5", relief="flat", bd=0, padx=12, pady=6,
-                     cursor="hand2", font=(FONT, 10))
-
-
 class RecordColumn:
-    def __init__(self, parent, title, subtitle, color, column):
+    def __init__(self, parent, title, color, column):
         self.frame = tk.Frame(parent, bg=BG)
         self.frame.grid(row=0, column=column, sticky="nsew", padx=(0, 10) if column == 0 else (10, 0))
         head = tk.Frame(self.frame, bg=BG)
@@ -29,7 +23,6 @@ class RecordColumn:
         label(head, title, 15, color, True).pack(side="left")
         self.count = label(head, "0", 11, MUTED)
         self.count.pack(side="left", padx=10)
-        label(self.frame, subtitle, 10, MUTED).pack(anchor="w", pady=(0, 16))
         body = tk.Frame(self.frame, bg=BG)
         body.pack(fill="both", expand=True)
         self.canvas = tk.Canvas(body, bg=BG, highlightthickness=0, width=1)
@@ -114,16 +107,18 @@ class Dashboard:
         sidebar.pack(side="left", fill="y")
         sidebar.pack_propagate(False)
         label(sidebar, "碎片记录", 17, bold=True, bg="white").pack(anchor="w")
-        self.summary = label(sidebar, "", 10, MUTED, bg="white")
-        self.summary.pack(anchor="w", pady=(6, 26))
-        label(sidebar, "日期", 10, MUTED, bg="white").pack(anchor="w", pady=(0, 8))
+        label(sidebar, "日期", 10, MUTED, bg="white").pack(anchor="w", pady=(28, 8))
         self.date_list = tk.Listbox(sidebar, bg="white", fg="#555d69", font=(FONT, 12),
                                     bd=0, highlightthickness=0, selectbackground="#edf2fc",
                                     selectforeground="#285fba", activestyle="none", exportselection=False)
         self.date_list.pack(fill="both", expand=True)
         self.date_list.bind("<<ListboxSelect>>", self.select_date)
-        label(sidebar, "Alt+1  记录学习\nAlt+2  记录待补全\nAlt+3  打开总览\nEsc     关闭总览", 10,
-              MUTED, bg="white").pack(anchor="w", pady=(20, 0))
+        self.help_icon = tk.Canvas(sidebar, width=34, height=34, bg="white", highlightthickness=0,
+                                   cursor="hand2")
+        self.help_icon.pack(anchor="w", pady=(14, 0))
+        self.help_icon.create_oval(3, 3, 31, 31, outline="#aeb6c2", width=1.5)
+        self.help_icon.create_text(17, 17, text="?", fill="#596577", font=(FONT, 13, "bold"))
+        self.help_icon.bind("<Button-1>", lambda _: self.show_shortcuts())
 
         main = tk.Frame(self.window, bg=BG, padx=28, pady=22)
         main.pack(side="left", fill="both", expand=True)
@@ -131,11 +126,8 @@ class Dashboard:
         header.pack(fill="x")
         self.day_title = label(header, "每日笔记", 22, bold=True)
         self.day_title.pack(side="left")
-        button(header, "刷新", self.refresh).pack(side="right")
-        self.trend_button = button(header, "查看趋势", self.toggle_trend)
-        self.trend_button.pack(side="right", padx=8)
-        self.day_info = label(main, "", 11, MUTED)
-        self.day_info.pack(anchor="w", pady=(8, 24))
+        self.icon_button(header, "refresh", self.refresh, "刷新记录").pack(side="right", padx=(8, 0))
+        self.icon_button(header, "trend", self.toggle_trend, "查看学习趋势").pack(side="right")
 
         self.chart_box = tk.Frame(main, bg="white", padx=12, pady=8)
         label(self.chart_box, "每日记录条数", 10, MUTED, bg="white").pack(anchor="w")
@@ -150,10 +142,64 @@ class Dashboard:
         self.columns.grid_columnconfigure((0, 1), weight=1, uniform="notes")
         self.columns.grid_rowconfigure(0, weight=1)
         self.panels = {
-            "今日学习": RecordColumn(self.columns, "需要复习", "已学过的内容，留待回顾", "#315e9b", 0),
-            "待补齐": RecordColumn(self.columns, "待补全", "来不及弄懂的，留待补齐", "#97713a", 1),
+            "今日学习": RecordColumn(self.columns, "需要复习", "#315e9b", 0),
+            "待补齐": RecordColumn(self.columns, "待补全", "#97713a", 1),
         }
         self.refresh()
+
+    def icon_button(self, parent, kind, command, tooltip):
+        icon = tk.Canvas(parent, width=38, height=38, bg="white", highlightthickness=0,
+                         cursor="hand2")
+        color = "#596577"
+        if kind == "trend":
+            icon.create_line(9, 28, 9, 10, fill=color, width=1.5)
+            icon.create_line(9, 28, 30, 28, fill=color, width=1.5)
+            icon.create_line(12, 23, 18, 18, 23, 21, 29, 11, fill="#315e9b", width=2,
+                             smooth=True)
+            for x, y in ((12, 23), (18, 18), (23, 21), (29, 11)):
+                icon.create_oval(x-1.5, y-1.5, x+1.5, y+1.5, fill="#315e9b", outline="")
+        else:
+            icon.create_text(19, 18, text="↻", fill=color, font=("Segoe UI Symbol", 23))
+        icon.bind("<Button-1>", lambda _: command())
+        icon.bind("<Enter>", lambda _: icon.configure(bg="#edf0f5"))
+        icon.bind("<Leave>", lambda _: icon.configure(bg="white"))
+        icon.bind("<Enter>", lambda event: self.show_tip(event, tooltip), add="+")
+        icon.bind("<Leave>", lambda _: self.hide_tip(), add="+")
+        return icon
+
+    def show_tip(self, event, text):
+        self.hide_tip()
+        self.tip = tk.Toplevel(self.window)
+        self.tip.overrideredirect(True)
+        self.tip.attributes("-topmost", True)
+        tk.Label(self.tip, text=text, bg="#303846", fg="white", padx=8, pady=4,
+                 font=(FONT, 9)).pack()
+        self.tip.geometry(f"+{event.x_root+10}+{event.y_root-28}")
+
+    def hide_tip(self):
+        if getattr(self, "tip", None) and self.tip.winfo_exists():
+            self.tip.destroy()
+
+    def show_shortcuts(self):
+        if getattr(self, "shortcut_window", None) and self.shortcut_window.winfo_exists():
+            self.shortcut_window.deiconify()
+            self.shortcut_window.lift()
+            return
+        popup = self.shortcut_window = tk.Toplevel(self.window)
+        popup.title("快捷键")
+        popup.transient(self.window)
+        popup.resizable(False, False)
+        panel = tk.Frame(popup, bg="white", padx=20, pady=16)
+        panel.pack(fill="both", expand=True)
+        label(panel, "快捷键", 14, bold=True, bg="white").pack(anchor="w", pady=(0, 10))
+        for key, action in (("Alt+1", "记录需要复习的内容"), ("Alt+2", "记录待补全的内容"),
+                            ("Alt+3", "打开总览"), ("Esc", "关闭总览")):
+            row = tk.Frame(panel, bg="white")
+            row.pack(fill="x", pady=4)
+            label(row, key, 10, "#315e9b", True, "white").pack(side="left", padx=(0, 16))
+            label(row, action, 10, bg="white").pack(side="left")
+        popup.bind("<Escape>", lambda _: popup.destroy())
+        popup.geometry(f"+{self.help_icon.winfo_rootx()+40}+{self.help_icon.winfo_rooty()-100}")
 
     def show(self):
         if self.trend_visible:
@@ -170,18 +216,16 @@ class Dashboard:
             self.draw_chart()
         else:
             self.chart_box.pack_forget()
-        self.trend_button.configure(text="收起趋势" if self.trend_visible else "查看趋势")
 
     def refresh(self):
         try:
             self.days = load_days()
         except (OSError, UnicodeError) as exc:
-            self.day_info.configure(text=f"读取失败：{exc}")
+            self.day_title.configure(text="读取失败")
             return
         self.date_list.delete(0, "end")
         for day in self.days:
             self.date_list.insert("end", f"  {day[5:].replace('-', ' / ')}" + ("  今天" if day == date.today().isoformat() else f"  {day[:4]}"))
-        self.summary.configure(text=f"{len(self.days)} 天的学习积累")
         if self.selected_day not in self.days:
             self.selected_day = next(iter(self.days), None)
         if self.selected_day:
@@ -202,7 +246,6 @@ class Dashboard:
         day = self.selected_day
         self.day_title.configure(text=day.replace("-", " / ") if day else "每日笔记")
         groups = self.days.get(day, {"今日学习": [], "待补齐": []})
-        self.day_info.configure(text=f"{len(groups['今日学习'])} 条需要复习  ·  {len(groups['待补齐'])} 条待补全")
         for category, panel in self.panels.items():
             panel.display(groups[category])
 
