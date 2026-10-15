@@ -1,7 +1,7 @@
 const base = location.pathname.endsWith('/') ? location.pathname : `${location.pathname}/`;
 const token = base.split('/')[1];
 const $ = (id) => document.getElementById(id);
-const state = { days: {}, topics: [], selectedTopic: '全部分类', selectedDay: null, today: '', trend: false };
+const state = { days: {}, topics: [], selectedTopic: '全部分类', selectedDay: null, today: '', trend: false, query: '' };
 let dialogResult;
 let lastSnapshot = '';
 
@@ -57,9 +57,28 @@ function el(tag, className, text) {
   return node;
 }
 
+function topicsByRecentUse() {
+  const lastUsed = new Map(state.topics.map(topic => [topic, '']));
+  for (const groups of Object.values(state.days)) {
+    for (const entries of Object.values(groups)) {
+      for (const [stamp, , topic] of entries) {
+        if (lastUsed.has(topic) && stamp > lastUsed.get(topic)) lastUsed.set(topic, stamp);
+      }
+    }
+  }
+  return state.topics
+    .map((topic, index) => ({ topic, index, stamp: lastUsed.get(topic) }))
+    .sort((a, b) => {
+      if (a.topic === '未分类') return 1;
+      if (b.topic === '未分类') return -1;
+      return b.stamp.localeCompare(a.stamp) || a.index - b.index;
+    })
+    .map(({ topic }) => topic);
+}
+
 function render() {
+  const orderedTopics = topicsByRecentUse();
   const dates = Object.keys(state.days);
-  $('day-count').textContent = dates.length;
   $('dates').replaceChildren(...dates.map(day => {
     const button = el('button', `date-button${day === state.selectedDay ? ' active' : ''}`);
     button.type = 'button';
@@ -68,26 +87,25 @@ function render() {
     return button;
   }));
   const select = $('topic-select');
-  select.replaceChildren(...['全部分类', ...state.topics].map(topic => {
+  select.replaceChildren(...[...orderedTopics.filter(topic => topic !== '未分类'), '全部分类', '未分类'].map(topic => {
     const option = el('option', '', topic);
     option.value = topic;
     return option;
   }));
   select.value = state.selectedTopic;
-  $('add-entry-topic').replaceChildren(...state.topics.map(topic => {
+  $('add-entry-topic').replaceChildren(...orderedTopics.map(topic => {
     const option = el('option', '', topic);
     option.value = topic;
     return option;
   }));
   $('add-entry-topic').value = state.selectedTopic === '全部分类' ? '未分类' : state.selectedTopic;
   $('delete-topic').disabled = ['全部分类', '未分类'].includes(state.selectedTopic);
-  $('topic-hint').textContent = state.selectedTopic === '全部分类'
-    ? '显示所有分类 · 新记录归入“未分类”'
-    : `筛选“${state.selectedTopic}” · 新记录归入此分类`;
-  $('day-label').textContent = state.selectedDay === state.today ? '今天' : state.selectedDay ? '历史记录' : '开始记录';
+  $('day-label').textContent = state.selectedDay === state.today ? '今天的记录' : state.selectedDay ? '历史记录' : '开始记录';
   $('day-title').textContent = state.selectedDay ? state.selectedDay.replaceAll('-', ' / ') : '每日笔记';
   const groups = state.days[state.selectedDay] || { '今日学习': [], '待补齐': [] };
-  const visible = category => (groups[category] || []).map((entry, index) => ({ entry, index })).filter(({ entry }) => state.selectedTopic === '全部分类' || entry[2] === state.selectedTopic);
+  const visible = category => (groups[category] || []).map((entry, index) => ({ entry, index })).filter(({ entry }) =>
+    (state.selectedTopic === '全部分类' || entry[2] === state.selectedTopic) &&
+    (!state.query || `${entry[1]} ${entry[2]}`.toLocaleLowerCase().includes(state.query)));
   const review = visible('今日学习');
   const fill = visible('待补齐');
   const columns = document.querySelectorAll('.record-column');
@@ -97,13 +115,14 @@ function render() {
   $('review-count').textContent = review.length;
   $('fill-count').textContent = fill.length;
   const count = review.length + fill.length;
-  $('day-summary').textContent = count ? `共 ${count} 条记录${state.selectedTopic === '全部分类' ? '' : ` · 分类：${state.selectedTopic}`}` : '';
   const filtered = state.selectedTopic !== '全部分类';
+  const total = (groups['今日学习'] || []).length + (groups['待补齐'] || []).length;
+  $('day-summary').textContent = `${total} 条记录${filtered ? ` · ${state.selectedTopic}` : ''}${state.query ? ` · 找到 ${count} 条` : ''}`;
   $('empty-state').hidden = count > 0;
-  $('show-all').hidden = !filtered;
+  $('show-all').hidden = !filtered || !!state.query;
   document.querySelector('.board').hidden = count === 0;
-  $('empty-title').textContent = filtered ? `这一天没有“${state.selectedTopic}”记录` : '还没有记录';
-  $('empty-description').textContent = filtered
+  $('empty-title').textContent = state.query ? '没有找到匹配的记录' : filtered ? `这一天没有“${state.selectedTopic}”记录` : '还没有记录';
+  $('empty-description').textContent = state.query ? '试试其他关键词，或清空搜索查看当天记录。' : filtered
     ? '可以查看其他分类，或选中文字后按 Alt+1 / Alt+2 保存到当前分类。'
     : '在任意应用中选中文字，按 Alt+1 记入待复习，按 Alt+2 记入待补全。';
   renderCards('review-list', '今日学习', review);
@@ -157,7 +176,7 @@ function renderCards(id, category, rows) {
     const topicTag = el('select', 'tag card-topic');
     topicTag.title = '点击切换这张卡片的分类';
     topicTag.setAttribute('aria-label', '卡片分类');
-    topicTag.replaceChildren(...state.topics.map(name => {
+    topicTag.replaceChildren(...topicsByRecentUse().map(name => {
       const option = el('option', '', name);
       option.value = name;
       return option;
@@ -426,12 +445,17 @@ $('delete-topic').addEventListener('click', async () => {
   if (!['全部分类', '未分类'].includes(name) && await ask('删除分类', `删除“${name}”？已有记录会归入“未分类”。`)) await run(() => action('deleteTopic', { topic: name }));
 });
 $('refresh').addEventListener('click', () => refresh());
+$('search-input').addEventListener('input', event => {
+  state.query = event.target.value.trim().toLocaleLowerCase();
+  render();
+});
 $('show-all').addEventListener('click', () => run(() => action('selectTopic', { topic: '全部分类' })));
 $('trend-toggle').addEventListener('click', () => {
   state.trend = !state.trend;
   $('trend').hidden = !state.trend;
   $('trend-toggle').setAttribute('aria-expanded', String(state.trend));
-  $('trend-toggle').querySelector('span').textContent = state.trend ? '收起趋势' : '查看趋势';
+  $('trend-toggle').title = state.trend ? '收起趋势' : '查看趋势';
+  $('trend-toggle').setAttribute('aria-label', state.trend ? '收起趋势' : '查看趋势');
   if (state.trend) renderChart();
 });
 document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(true); });

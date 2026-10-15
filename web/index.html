@@ -12,22 +12,20 @@
   <div class="app-shell">
     <aside class="sidebar" aria-label="记录导航">
       <div class="brand"><span class="brand-mark">✦</span><div><strong>碎片记录</strong><small>把灵感留在此刻</small></div></div>
-      <div class="sidebar-section"><div class="section-heading"><span>记录日期</span><span id="day-count" class="quiet"></span></div><nav id="dates" class="dates" aria-label="日期"></nav></div>
-      <div class="sidebar-bottom">
-        <section class="topic-section" aria-labelledby="topic-heading">
+      <div class="sidebar-section"><div class="section-heading"><span>记录日期</span></div><nav id="dates" class="dates" aria-label="日期"></nav></div>
+      <section class="topic-section" aria-labelledby="topic-heading">
           <h2 id="topic-heading" class="section-heading">分类</h2>
-          <label class="field-label" for="topic-select">筛选记录</label>
-          <select id="topic-select"></select>
-          <p id="topic-hint" class="sidebar-hint" aria-live="polite"></p>
-          <div class="topic-actions"><button id="add-topic" type="button">＋ 新增分类</button><button id="delete-topic" type="button">删除当前分类</button></div>
-        </section>
+          <select id="topic-select" aria-label="筛选分类"></select>
+          <div class="topic-actions"><button id="add-topic" class="icon-only" type="button" title="新增分类" aria-label="新增分类"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button><button id="delete-topic" class="icon-only danger" type="button" title="删除当前分类" aria-label="删除当前分类"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7"/></svg></button></div>
+      </section>
+      <div class="sidebar-bottom">
         <details class="shortcut-panel"><summary>快捷键 <span>查看</span></summary><div class="shortcut-list"><p><kbd>Alt</kbd> + <kbd>1</kbd><span>记录待复习</span></p><p><kbd>Alt</kbd> + <kbd>2</kbd><span>记录待补全</span></p><p><kbd>Alt</kbd> + <kbd>3</kbd><span>打开总览</span></p></div></details>
       </div>
     </aside>
 
     <main class="main-content">
-      <header class="topbar"><div class="eyebrow">每日总览</div><div class="top-actions"><button id="add-entry" class="pill-button primary" type="button">＋ 添加卡片</button><button id="refresh" class="pill-button" type="button">刷新</button><button id="trend-toggle" class="pill-button" type="button" aria-expanded="false"><span>查看趋势</span></button></div></header>
-      <section class="intro"><div><p class="overline" id="day-label">今天</p><h1 id="day-title">每日笔记</h1><p class="intro-copy" id="day-summary"></p></div></section>
+      <header class="topbar"><label class="search-box" for="search-input"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.8"/><path d="m16 16 5 5"/></svg><input id="search-input" type="search" placeholder="搜索当天记录" autocomplete="off" aria-label="搜索当天记录"></label><div class="top-actions"><button id="add-entry" class="add-button" type="button" title="添加卡片"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span>添加卡片</span></button><button id="refresh" class="icon-only" type="button" title="刷新记录" aria-label="刷新记录"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M5.6 9a7 7 0 0 1 11.6-2L20 12M4 12l2.8 5a7 7 0 0 0 11.6-2"/></svg></button><button id="trend-toggle" class="icon-only" type="button" title="查看趋势" aria-label="查看趋势" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3v18h18M7 14l4-4 4 3 6-7"/><path d="M17 6h4v4"/></svg></button></div></header>
+      <section class="intro"><div><p class="overline" id="day-label"></p><h1 id="day-title">每日笔记</h1><p class="intro-copy" id="day-summary"></p></div></section>
       <section id="trend" class="trend-panel" hidden><div class="trend-head"><h2>记录趋势</h2><div class="legend"><span><i class="dot blue"></i>待复习</span><span><i class="dot amber"></i>待补全</span></div></div><div class="chart-scroll"><div id="chart" class="chart"></div></div></section>
       <section id="empty-state" class="empty-state" hidden><h2 id="empty-title"></h2><p id="empty-description"></p><button id="show-all" type="button" class="pill-button primary" hidden>查看全部分类</button></section>
       <section class="board" aria-label="当天记录"><div class="record-column"><div class="column-heading"><span class="column-icon blue">↗</span><h2>待复习 <em id="review-count">0</em></h2></div><div id="review-list" class="record-list"></div></div><div class="record-column"><div class="column-heading"><span class="column-icon amber">◌</span><h2>待补全 <em id="fill-count">0</em></h2></div><div id="fill-list" class="record-list"></div></div></section>
