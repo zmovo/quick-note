@@ -33,8 +33,6 @@ kernel32.GlobalLock.argtypes = (wintypes.HGLOBAL,)
 kernel32.GlobalLock.restype = ctypes.c_void_p
 kernel32.GlobalUnlock.argtypes = (wintypes.HGLOBAL,)
 user32.GetForegroundWindow.restype = wintypes.HWND
-user32.PostMessageW.argtypes = (wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM)
-user32.SetForegroundWindow.argtypes = (wintypes.HWND,)
 user32.GetAncestor.argtypes = (wintypes.HWND, wintypes.UINT)
 user32.GetAncestor.restype = wintypes.HWND
 user32.GetWindowLongW.argtypes = (wintypes.HWND, ctypes.c_int)
@@ -42,36 +40,6 @@ user32.SetWindowLongW.argtypes = (wintypes.HWND, ctypes.c_int, ctypes.c_long)
 user32.ShowWindow.argtypes = (wintypes.HWND, ctypes.c_int)
 user32.keybd_event.argtypes = (ctypes.c_ubyte, ctypes.c_ubyte, wintypes.DWORD,
                               ctypes.c_void_p)
-
-
-class KEYBDINPUT(ctypes.Structure):
-    _fields_ = [("wVk", wintypes.WORD), ("wScan", wintypes.WORD),
-                ("dwFlags", wintypes.DWORD), ("time", wintypes.DWORD),
-                ("dwExtraInfo", wintypes.WPARAM)]
-
-
-class MOUSEINPUT(ctypes.Structure):
-    _fields_ = [("dx", wintypes.LONG), ("dy", wintypes.LONG),
-                ("mouseData", wintypes.DWORD), ("dwFlags", wintypes.DWORD),
-                ("time", wintypes.DWORD), ("dwExtraInfo", wintypes.WPARAM)]
-
-
-class HARDWAREINPUT(ctypes.Structure):
-    _fields_ = [("uMsg", wintypes.DWORD), ("wParamL", wintypes.WORD),
-                ("wParamH", wintypes.WORD)]
-
-
-class INPUTUNION(ctypes.Union):
-    _fields_ = [("ki", KEYBDINPUT), ("mi", MOUSEINPUT), ("hi", HARDWAREINPUT)]
-
-
-class INPUT(ctypes.Structure):
-    _anonymous_ = ("data",)
-    _fields_ = [("type", wintypes.DWORD), ("data", INPUTUNION)]
-
-
-user32.SendInput.argtypes = (wintypes.UINT, ctypes.POINTER(INPUT), ctypes.c_int)
-user32.SendInput.restype = wintypes.UINT
 
 
 def hotkey_listener(events):
@@ -165,7 +133,7 @@ def main():
                 root.after(40, save_selection, sequence, category_id, attempts + 1)
                 return
             pending = False
-            show_toast("保存失败", "没有复制到选中文字。请确认 Anki 中选中的文字可复制，再重试。", False)
+            show_toast("保存失败", "目标窗口没有响应复制按键。请保持文字选中并重试。", False)
             return
         try:
             content = read_clipboard_text()
@@ -198,26 +166,13 @@ def main():
             pending = False
             show_toast("保存失败", "复制前窗口已切换，请在选中文字的窗口重试。", False)
             return
-        # 退出 Alt 激活的菜单模式，避免 Ctrl+C 被菜单截获。
-        user32.PostMessageW(source_window, 0x001F, 0, 0)  # WM_CANCELMODE
         modifier, key = 0x11, (0x2D if alternate else 0x43)  # Ctrl+Insert 也是复制
-        inputs = (INPUT * 2)()
-        for event, vk in zip(inputs, (modifier, key)):
-            event.type = 1
-            event.ki = KEYBDINPUT(vk, 0, 0, 0, 0)
-        if user32.SendInput(2, inputs, ctypes.sizeof(INPUT)) != 2:
-            for vk in (key, modifier):
-                user32.keybd_event(vk, 0, 2, None)
-            pending = False
-            show_toast("保存失败", "Windows 阻止了复制按键，请确认目标应用未以管理员身份运行。", False)
-            return
-
-        def release():
-            for event, vk in zip(inputs, (key, modifier)):
-                event.ki = KEYBDINPUT(vk, 0, 2, 0, 0)
-            user32.SendInput(2, inputs, ctypes.sizeof(INPUT))
-            root.after(40, save_selection, sequence, category_id, 16 if alternate else 0)
-        root.after(60, release)
+        # 分开发送按键并留出间隔，兼容 Chromium/ChatGPT 等自绘页面。
+        user32.keybd_event(modifier, 0, 0, None)
+        root.after(35, lambda: user32.keybd_event(key, 0, 0, None))
+        root.after(90, lambda: user32.keybd_event(key, 0, 2, None))
+        root.after(125, lambda: user32.keybd_event(modifier, 0, 2, None))
+        root.after(180, save_selection, sequence, category_id, 16 if alternate else 0)
 
     def copy_selection(category_id, attempts=0):
         nonlocal pending
