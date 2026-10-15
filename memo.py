@@ -6,13 +6,39 @@ import threading
 import tkinter as tk
 from ctypes import wintypes
 from dashboard import Dashboard
-from storage import save
+from storage import get_topics, save, save_image
+from clipboard_image import read_image
 
 
 HOTKEYS = {1: (ord("1"), "今日学习"),
            2: (ord("2"), "待补齐"),
            3: (ord("3"), "打开总览")}  # 共用 Alt
 WM_HOTKEY = 0x0312
+
+
+class KEYBDINPUT(ctypes.Structure):
+    _fields_ = [("wVk", wintypes.WORD), ("wScan", wintypes.WORD),
+                ("dwFlags", wintypes.DWORD), ("time", wintypes.DWORD),
+                ("dwExtraInfo", ctypes.c_size_t)]
+
+
+class MOUSEINPUT(ctypes.Structure):
+    _fields_ = [("dx", wintypes.LONG), ("dy", wintypes.LONG),
+                ("mouseData", wintypes.DWORD), ("dwFlags", wintypes.DWORD),
+                ("time", wintypes.DWORD), ("dwExtraInfo", ctypes.c_size_t)]
+
+
+class HARDWAREINPUT(ctypes.Structure):
+    _fields_ = [("uMsg", wintypes.DWORD), ("wParamL", wintypes.WORD),
+                ("wParamH", wintypes.WORD)]
+
+
+class INPUT_UNION(ctypes.Union):
+    _fields_ = [("ki", KEYBDINPUT), ("mi", MOUSEINPUT), ("hi", HARDWAREINPUT)]
+
+
+class INPUT(ctypes.Structure):
+    _fields_ = [("type", wintypes.DWORD), ("data", INPUT_UNION)]
 
 user32 = ctypes.WinDLL("user32", use_last_error=True)
 user32.RegisterHotKey.argtypes = (wintypes.HWND, ctypes.c_int, wintypes.UINT, wintypes.UINT)
@@ -38,8 +64,21 @@ user32.GetAncestor.restype = wintypes.HWND
 user32.GetWindowLongW.argtypes = (wintypes.HWND, ctypes.c_int)
 user32.SetWindowLongW.argtypes = (wintypes.HWND, ctypes.c_int, ctypes.c_long)
 user32.ShowWindow.argtypes = (wintypes.HWND, ctypes.c_int)
-user32.keybd_event.argtypes = (ctypes.c_ubyte, ctypes.c_ubyte, wintypes.DWORD,
-                              ctypes.c_void_p)
+user32.SendInput.argtypes = (wintypes.UINT, ctypes.POINTER(INPUT), ctypes.c_int)
+user32.SendInput.restype = wintypes.UINT
+
+
+def send_copy_keys(alternate=False):
+    """一次提交完整复制快捷键，避免按键之间混入其他输入。"""
+    key = 0x2D if alternate else 0x43  # Ctrl+Insert / Ctrl+C
+    flags = 1 if alternate else 0  # Insert 是扩展键
+    keys = (INPUT * 4)(
+        INPUT(1, INPUT_UNION(ki=KEYBDINPUT(0x11, 0, 0, 0, 0))),
+        INPUT(1, INPUT_UNION(ki=KEYBDINPUT(key, 0, flags, 0, 0))),
+        INPUT(1, INPUT_UNION(ki=KEYBDINPUT(key, 0, flags | 2, 0, 0))),
+        INPUT(1, INPUT_UNION(ki=KEYBDINPUT(0x11, 0, 2, 0, 0))),
+    )
+    return user32.SendInput(4, keys, ctypes.sizeof(INPUT)) == 4
 
 
 def hotkey_listener(events):
@@ -87,8 +126,10 @@ def main():
     toast = None
     hide_job = None
     pending = False
+    pending_topic = "未分类"
     source_window = None
     dashboard = Dashboard(root)
+    dashboard.show()
 
     def show_toast(title, detail, success):
         nonlocal toast, hide_job
@@ -152,10 +193,12 @@ def main():
                 show_toast("保存失败", "选中内容没有文字", False)
                 return
             category = HOTKEYS[category_id][1]
-            path = save(category, content)
+            with dashboard.lock:
+                path = save(category, content, topic=pending_topic)
             pending = False
             dashboard.refresh()
-            show_toast(f"✓ 已记入{category}", f"{len(content)} 字 · {path.parent.name}/{path.name}", True)
+            show_toast(f"✓ 已记入{category}",
+                       f"{pending_topic} · {len(content)} 字 · {path.parent.name}/{path.name}", True)
         except OSError as exc:
             pending = False
             show_toast("保存失败", str(exc), False)
@@ -166,13 +209,34 @@ def main():
             pending = False
             show_toast("保存失败", "复制前窗口已切换，请在选中文字的窗口重试。", False)
             return
-        modifier, key = 0x11, (0x2D if alternate else 0x43)  # Ctrl+Insert 也是复制
-        # 分开发送按键并留出间隔，兼容 Chromium/ChatGPT 等自绘页面。
-        user32.keybd_event(modifier, 0, 0, None)
-        root.after(35, lambda: user32.keybd_event(key, 0, 0, None))
-        root.after(90, lambda: user32.keybd_event(key, 0, 2, None))
-        root.after(125, lambda: user32.keybd_event(modifier, 0, 2, None))
+        if not send_copy_keys(alternate):
+            pending = False
+            show_toast("保存失败", "系统未能发送复制按键。请检查目标应用权限后重试。", False)
+            return
         root.after(180, save_selection, sequence, category_id, 16 if alternate else 0)
+
+    def capture(category_id, attempts=0):
+        nonlocal pending
+        try:
+            image = read_image()
+            if image is None:
+                copy_selection(category_id)
+                return
+            category = HOTKEYS[category_id][1]
+            with dashboard.lock:
+                path = save_image(category, image, pending_topic)
+            pending = False
+            dashboard.refresh()
+            show_toast(f"✓ 已记入{category}", f"{pending_topic} · 图片 · {path.parent.name}/{path.name}", True)
+        except BlockingIOError:
+            if attempts < 20:
+                root.after(50, capture, category_id, attempts + 1)
+            else:
+                pending = False
+                show_toast("保存失败", "剪贴板暂时被占用，请稍后重试。", False)
+        except (OSError, ValueError) as exc:
+            pending = False
+            show_toast("保存失败", str(exc), False)
 
     def copy_selection(category_id, attempts=0):
         nonlocal pending
@@ -189,7 +253,7 @@ def main():
         root.after(100, send_copy, sequence, category_id)
 
     def poll():
-        nonlocal pending, source_window
+        nonlocal pending, pending_topic, source_window
         try:
             while True:
                 action, value = events.get_nowait()
@@ -199,8 +263,10 @@ def main():
                         dashboard.show()
                     elif not pending:
                         pending = True
+                        with dashboard.lock:
+                            pending_topic = dashboard.topic_filter if dashboard.topic_filter in get_topics() else "未分类"
                         source_window = target
-                        copy_selection(value)
+                        capture(value)
                 else:
                     show_toast("无法启动热键", value, False)
                     root.after(4000, root.destroy)

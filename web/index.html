@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#252b30">
+  <title>碎片记录 · 每日总览</title>
+  <link rel="stylesheet" href="app.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="记录导航">
+      <div class="brand"><span class="brand-mark">✦</span><div><strong>碎片记录</strong><small>把灵感留在此刻</small></div></div>
+      <div class="sidebar-section"><div class="section-heading"><span>记录日期</span><span id="day-count" class="quiet"></span></div><nav id="dates" class="dates" aria-label="日期"></nav></div>
+      <div class="sidebar-bottom">
+        <section class="topic-section" aria-labelledby="topic-heading">
+          <h2 id="topic-heading" class="section-heading">分类</h2>
+          <label class="field-label" for="topic-select">筛选记录</label>
+          <select id="topic-select"></select>
+          <p id="topic-hint" class="sidebar-hint" aria-live="polite"></p>
+          <div class="topic-actions"><button id="add-topic" type="button">＋ 新增分类</button><button id="delete-topic" type="button">删除当前分类</button></div>
+        </section>
+        <details class="shortcut-panel"><summary>快捷键 <span>查看</span></summary><div class="shortcut-list"><p><kbd>Alt</kbd> + <kbd>1</kbd><span>记录待复习</span></p><p><kbd>Alt</kbd> + <kbd>2</kbd><span>记录待补全</span></p><p><kbd>Alt</kbd> + <kbd>3</kbd><span>打开总览</span></p></div></details>
+      </div>
+    </aside>
+
+    <main class="main-content">
+      <header class="topbar"><div class="eyebrow">每日总览</div><div class="top-actions"><button id="add-entry" class="pill-button primary" type="button">＋ 添加卡片</button><button id="refresh" class="pill-button" type="button">刷新</button><button id="trend-toggle" class="pill-button" type="button" aria-expanded="false"><span>查看趋势</span></button></div></header>
+      <section class="intro"><div><p class="overline" id="day-label">今天</p><h1 id="day-title">每日笔记</h1><p class="intro-copy" id="day-summary"></p></div></section>
+      <section id="trend" class="trend-panel" hidden><div class="trend-head"><h2>记录趋势</h2><div class="legend"><span><i class="dot blue"></i>待复习</span><span><i class="dot amber"></i>待补全</span></div></div><div class="chart-scroll"><div id="chart" class="chart"></div></div></section>
+      <section id="empty-state" class="empty-state" hidden><h2 id="empty-title"></h2><p id="empty-description"></p><button id="show-all" type="button" class="pill-button primary" hidden>查看全部分类</button></section>
+      <section class="board" aria-label="当天记录"><div class="record-column"><div class="column-heading"><span class="column-icon blue">↗</span><h2>待复习 <em id="review-count">0</em></h2></div><div id="review-list" class="record-list"></div></div><div class="record-column"><div class="column-heading"><span class="column-icon amber">◌</span><h2>待补全 <em id="fill-count">0</em></h2></div><div id="fill-list" class="record-list"></div></div></section>
+    </main>
+  </div>
+  <dialog id="dialog"><form method="dialog"><h2 id="dialog-title"></h2><p id="dialog-description"></p><label id="dialog-label" for="dialog-input"></label><input id="dialog-input" maxlength="30"><div class="dialog-actions"><button value="cancel" class="pill-button">取消</button><button id="dialog-confirm" value="confirm" class="pill-button primary">确定</button></div></form></dialog>
+  <dialog id="edit-dialog" aria-labelledby="edit-title"><form id="edit-form"><h2 id="edit-title">编辑记录</h2><label for="edit-content">记录内容</label><textarea id="edit-content" rows="10" placeholder="可直接 Ctrl+V 粘贴图片" required></textarea><p class="paste-hint">支持在此处按 Ctrl+V 粘贴图片</p><div id="edit-image-preview" class="composer-image-preview" hidden></div><p id="edit-error" role="alert"></p><div class="dialog-actions"><button id="edit-cancel" type="button" class="pill-button">取消</button><button id="edit-save" type="submit" class="pill-button primary">保存</button></div></form></dialog>
+  <dialog id="add-entry-dialog" aria-labelledby="add-entry-title"><form id="add-entry-form"><h2 id="add-entry-title">添加知识卡片</h2><p class="add-entry-context" id="add-entry-context"></p><label for="add-entry-content">卡片内容</label><textarea id="add-entry-content" rows="7" placeholder="写下内容，也可直接 Ctrl+V 粘贴图片…" required></textarea><p class="paste-hint">支持在此处按 Ctrl+V 粘贴图片</p><div id="add-entry-image-preview" class="composer-image-preview" hidden></div><div class="add-entry-options"><label for="add-entry-category">记录到</label><select id="add-entry-category"><option value="今日学习">待复习</option><option value="待补齐">待补全</option></select><label for="add-entry-topic">分类</label><select id="add-entry-topic"></select></div><p id="add-entry-error" role="alert"></p><div class="dialog-actions"><button id="add-entry-cancel" type="button" class="pill-button">取消</button><button id="add-entry-save" type="submit" class="pill-button primary">添加卡片</button></div></form></dialog>
+  <dialog id="image-preview" aria-label="图片预览"><button id="image-preview-close" class="image-preview-close" type="button" aria-label="关闭图片预览">×</button><img id="image-preview-image" alt="图片预览"></dialog>
+  <div id="toast" role="status" aria-live="polite"></div>
+</body>
+</html>

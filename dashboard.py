@@ -1,365 +1,195 @@
-"""以每日笔记为中心的总览；趋势按需展开。"""
-import tkinter as tk
-from tkinter import ttk, messagebox
+"""本地浏览器总览；Win32 热键仍由 memo.py 管理。"""
+from __future__ import annotations
+
+import json
+import secrets
+import threading
+import webbrowser
 from datetime import date
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from urllib.parse import unquote, urlsplit
+import base64
 
-from storage import TOPICS, delete_entry, load_days, set_topic
+import storage
 
-BG, INK, MUTED = "#f7f8fa", "#20242c", "#818894"
-FONT = "Microsoft YaHei UI"
+from storage import add_topic, delete_entry, delete_topic, get_topics, load_days, save, set_topic, update_entry
 
-
-def label(parent, text, size=11, color=INK, bold=False, bg=BG):
-    return tk.Label(parent, text=text, bg=bg, fg=color,
-                    font=(FONT, size, "bold" if bold else "normal"), anchor="w")
-
-
-def button(parent, text, command):
-    return tk.Button(parent, text=text, command=command, bg="white", fg="#505866",
-                     activebackground="#edf0f5", relief="flat", bd=0, padx=12, pady=6,
-                     cursor="hand2", font=(FONT, 10))
-
-
-class RecordColumn:
-    def __init__(self, parent, title, color, column, on_delete, on_topic):
-        self.on_delete = on_delete
-        self.on_topic = on_topic
-        self.frame = tk.Frame(parent, bg=BG)
-        self.frame.grid(row=0, column=column, sticky="nsew", padx=(0, 10) if column == 0 else (10, 0))
-        head = tk.Frame(self.frame, bg=BG)
-        head.pack(fill="x", pady=(0, 4))
-        label(head, title, 15, color, True).pack(side="left")
-        self.count = label(head, "0", 11, MUTED)
-        self.count.pack(side="left", padx=10)
-        body = tk.Frame(self.frame, bg=BG)
-        body.pack(fill="both", expand=True)
-        self.canvas = tk.Canvas(body, bg=BG, highlightthickness=0, width=1)
-        scrollbar = ttk.Scrollbar(body, command=self.canvas.yview)
-        scrollbar.pack(side="right", fill="y")
-        self.canvas.pack(side="left", fill="both", expand=True)
-        self.canvas.configure(yscrollcommand=scrollbar.set)
-        self.cards = tk.Frame(self.canvas, bg=BG)
-        self.item = self.canvas.create_window(0, 0, window=self.cards, anchor="nw")
-        self.canvas.bind("<Configure>", self.resize)
-        self.cards.bind("<Configure>", lambda _: self.canvas.configure(scrollregion=self.canvas.bbox("all")))
-        self.canvas.bind("<MouseWheel>", self.scroll)
-        self.areas = []
-        self.selected_card = None
-
-    def scroll(self, event):
-        self.canvas.yview_scroll(-int(event.delta / 120), "units")
-        return "break"
-
-    def resize(self, event):
-        self.canvas.itemconfigure(self.item, width=event.width)
-        self.canvas.after_idle(self.fit_text)
-
-    def fit_text(self):
-        for area in self.areas:
-            if area.winfo_exists() and area.winfo_width() > 100:
-                lines = area.count("1.0", "end-1c", "displaylines")
-                height = max(1, (lines[0] if lines else 1) + 1)
-                if int(area.cget("height")) != height:
-                    area.configure(height=height)
-
-    def display(self, entries):
-        for child in self.cards.winfo_children():
-            child.destroy()
-        self.areas = []
-        self.selected_card = None
-        self.count.configure(text=str(len(entries)))
-        if not entries:
-            label(self.cards, "这一天还没有记录", 11, MUTED).pack(anchor="w", pady=24)
-        for index, (stamp, content, topic) in enumerate(entries):
-            card = tk.Frame(self.cards, bg="white", highlightbackground="#e6e9ee", highlightthickness=1)
-            card.pack(fill="x", pady=(0, 12), padx=(0, 4))
-            card.bind("<Button-1>", lambda _, target=card: self.select_card(target))
-            top = tk.Frame(card, bg="white", padx=16, pady=8)
-            top.pack(fill="x")
-            time_label = label(top, stamp[11:], 10, MUTED, bg="white")
-            time_label.pack(side="left")
-            time_label.configure(cursor="hand2")
-            time_label.bind("<Button-1>", lambda _, target=card: self.select_card(target))
-            top.bind("<Button-1>", lambda _, target=card: self.select_card(target))
-            actions = tk.Frame(top, bg="white")
-            actions.pack(side="right")
-            topic_box = ttk.Combobox(actions, values=TOPICS, state="readonly", width=7,
-                                     font=(FONT, 9))
-            topic_box.set(topic)
-            topic_box.pack(side="left", padx=(0, 6))
-            topic_box.bind("<<ComboboxSelected>>",
-                           lambda event, i=index, box=topic_box: self.on_topic(i, box.get()))
-            copy = button(actions, "⧉", lambda value=content: self.copy(value))
-            copy.configure(padx=7, pady=2, font=(FONT, 13))
-            copy.pack(side="left")
-            remove = button(actions, "🗑", lambda i=index: self.on_delete(i))
-            remove.configure(padx=7, pady=2, font=(FONT, 13), fg="#a34b52")
-            remove.pack(side="left", padx=(2, 0))
-            area = tk.Text(card, wrap="word", font=(FONT, 12), bg="white", fg=INK,
-                           bd=0, relief="flat", highlightthickness=0,
-                           highlightbackground="white", highlightcolor="white",
-                           padx=16, pady=4, spacing3=6, width=1, height=1,
-                           selectbackground="#dce8fb", cursor="xterm")
-            area.insert("1.0", content)
-            area.configure(state="disabled")
-            area.pack(fill="x", pady=(0, 12))
-            self.areas.append(area)
-            area.bind("<Configure>", lambda _, widget=area: widget.after_idle(self.fit_text))
-            area.bind("<Button-1>", lambda _, target=card: self.select_card(target))
-            for widget in (card, top, area):
-                widget.bind("<MouseWheel>", self.scroll)
-        self.canvas.yview_moveto(0)
-        self.canvas.after(80, self.fit_text)
-
-    def copy(self, content):
-        self.frame.clipboard_clear()
-        self.frame.clipboard_append(content)
-
-    def select_card(self, card):
-        if self.selected_card and self.selected_card.winfo_exists():
-            self.selected_card.configure(highlightbackground="#e6e9ee", highlightthickness=1)
-        self.selected_card = card
-        card.configure(highlightbackground="#7896c6", highlightthickness=2)
+ASSETS = Path(__file__).resolve().parent / "web"
+CATEGORIES = ("今日学习", "待补齐")
 
 
 class Dashboard:
     def __init__(self, root):
-        self.window = tk.Toplevel(root)
-        self.window.title("碎片记录 · 每日总览")
-        width = min(1120, self.window.winfo_screenwidth() - 60)
-        height = min(740, self.window.winfo_screenheight() - 100)
-        self.window.geometry(f"{width}x{height}+{(self.window.winfo_screenwidth()-width)//2}+35")
-        self.window.minsize(820, 500)
-        self.window.configure(bg=BG)
-        self.window.protocol("WM_DELETE_WINDOW", self.window.withdraw)
-        self.window.bind("<Escape>", lambda _: self.window.withdraw())
-        self.days, self.selected_day = {}, None
-        self.trend_visible = False
+        self.root = root
+        self.topic_filter = "全部分类"
+        self.lock = threading.RLock()
+        self.token = secrets.token_urlsafe(24)
+        dashboard = self
 
-        sidebar = tk.Frame(self.window, bg="white", width=190, padx=18, pady=24)
-        sidebar.pack(side="left", fill="y")
-        sidebar.pack_propagate(False)
-        label(sidebar, "碎片记录", 17, bold=True, bg="white").pack(anchor="w")
-        label(sidebar, "日期", 10, MUTED, bg="white").pack(anchor="w", pady=(28, 8))
-        self.date_list = tk.Listbox(sidebar, bg="white", fg="#555d69", font=(FONT, 12),
-                                    bd=0, highlightthickness=0, selectbackground="#edf2fc",
-                                    selectforeground="#285fba", activestyle="none", exportselection=False)
-        self.date_list.pack(fill="both", expand=True)
-        self.date_list.bind("<<ListboxSelect>>", self.select_date)
-        self.date_list.bind("<Button-1>", self.date_list_click, add="+")
-        self.help_icon = tk.Canvas(sidebar, width=34, height=34, bg="white", highlightthickness=0,
-                                   cursor="hand2")
-        self.help_icon.pack(anchor="w", pady=(14, 0))
-        self.help_icon.create_oval(3, 3, 31, 31, outline="#aeb6c2", width=1.5)
-        self.help_icon.create_text(17, 17, text="?", fill="#596577", font=(FONT, 13, "bold"))
-        self.help_icon.bind("<Button-1>", lambda _: self.toggle_shortcuts())
-        self.window.bind("<Button-1>", self.dismiss_shortcuts, add="+")
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self, *_args):
+                pass
 
-        main = tk.Frame(self.window, bg=BG, padx=28, pady=22)
-        main.pack(side="left", fill="both", expand=True)
-        header = tk.Frame(main, bg=BG)
-        header.pack(fill="x")
-        self.day_title = label(header, "每日笔记", 22, bold=True)
-        self.day_title.pack(side="left")
-        self.icon_button(header, "refresh", self.refresh, "刷新记录").pack(side="right", padx=(8, 0))
-        self.icon_button(header, "trend", self.toggle_trend, "查看学习趋势").pack(side="right")
+            def respond(self, status, data, content_type="application/json; charset=utf-8"):
+                body = (json.dumps(data, ensure_ascii=False).encode("utf-8")
+                        if not isinstance(data, bytes) else data)
+                self.send_response(status)
+                self.send_header("Content-Type", content_type)
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("X-Content-Type-Options", "nosniff")
+                self.end_headers()
+                self.wfile.write(body)
 
-        self.chart_box = tk.Frame(main, bg="white", padx=12, pady=8)
-        label(self.chart_box, "每日记录条数", 10, MUTED, bg="white").pack(anchor="w")
-        self.chart = tk.Canvas(self.chart_box, bg="white", height=140, highlightthickness=0)
-        self.chart.pack(fill="x")
-        scrollbar = ttk.Scrollbar(self.chart_box, orient="horizontal", command=self.chart.xview)
-        scrollbar.pack(fill="x")
-        self.chart.configure(xscrollcommand=scrollbar.set)
-        self.chart.bind("<Configure>", lambda _: self.draw_chart())
-        self.columns = tk.Frame(main, bg=BG)
-        self.columns.pack(fill="both", expand=True)
-        self.columns.grid_columnconfigure((0, 1), weight=1, uniform="notes")
-        self.columns.grid_rowconfigure(0, weight=1)
-        self.panels = {
-            "今日学习": RecordColumn(self.columns, "待复习", "#315e9b", 0,
-                                      lambda i: self.delete_card("今日学习", i),
-                                      lambda i, t: self.change_topic("今日学习", i, t)),
-            "待补齐": RecordColumn(self.columns, "待补全", "#97713a", 1,
-                                   lambda i: self.delete_card("待补齐", i),
-                                   lambda i, t: self.change_topic("待补齐", i, t)),
-        }
-        self.refresh()
+            def route(self):
+                path = urlsplit(self.path).path
+                prefix = f"/{dashboard.token}"
+                if path != prefix and not path.startswith(prefix + "/"):
+                    self.respond(404, {"error": "Not found"})
+                    return None
+                return path[len(prefix):] or "/"
 
-    def icon_button(self, parent, kind, command, tooltip):
-        icon = tk.Canvas(parent, width=38, height=38, bg="white", highlightthickness=0,
-                         cursor="hand2")
-        color = "#596577"
-        if kind == "trend":
-            icon.create_line(9, 28, 9, 10, fill=color, width=1.5)
-            icon.create_line(9, 28, 30, 28, fill=color, width=1.5)
-            icon.create_line(12, 23, 18, 18, 23, 21, 29, 11, fill="#315e9b", width=2,
-                             smooth=True)
-            for x, y in ((12, 23), (18, 18), (23, 21), (29, 11)):
-                icon.create_oval(x-1.5, y-1.5, x+1.5, y+1.5, fill="#315e9b", outline="")
-        else:
-            icon.create_text(19, 18, text="↻", fill=color, font=("Segoe UI Symbol", 23))
-        icon.bind("<Button-1>", lambda _: command())
-        icon.bind("<Enter>", lambda _: icon.configure(bg="#edf0f5"))
-        icon.bind("<Leave>", lambda _: icon.configure(bg="white"))
-        icon.bind("<Enter>", lambda event: self.show_tip(event, tooltip), add="+")
-        icon.bind("<Leave>", lambda _: self.hide_tip(), add="+")
-        return icon
+            def do_GET(self):
+                route = self.route()
+                if route is None:
+                    return
+                if route.startswith("/images/"):
+                    root = storage.ROOT.resolve()
+                    path = (root / unquote(route[len("/images/"):])).resolve()
+                    mime = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+                            ".gif": "image/gif", ".webp": "image/webp", ".bmp": "image/bmp"}.get(path.suffix.lower())
+                    if not path.is_relative_to(root) or not mime:
+                        self.respond(404, {"error": "图片不存在"})
+                        return
+                    try:
+                        self.respond(200, path.read_bytes(), mime)
+                    except OSError:
+                        self.respond(404, {"error": "图片不存在"})
+                    return
+                if route == "/api/state":
+                    try:
+                        with dashboard.lock:
+                            data = {"days": load_days(), "topics": get_topics(),
+                                    "selectedTopic": dashboard.topic_filter,
+                                    "today": date.today().isoformat()}
+                        self.respond(200, data)
+                    except (OSError, UnicodeError, ValueError) as exc:
+                        self.respond(500, {"error": str(exc)})
+                    return
+                files = {"/": ("index.html", "text/html; charset=utf-8"),
+                         "/app.css": ("app.css", "text/css; charset=utf-8"),
+                         "/app.js": ("app.js", "text/javascript; charset=utf-8")}
+                if route not in files:
+                    self.respond(404, {"error": "Not found"})
+                    return
+                name, mime = files[route]
+                try:
+                    self.respond(200, (ASSETS / name).read_bytes(), mime)
+                except OSError:
+                    self.respond(500, {"error": "界面文件无法读取"})
 
-    def show_tip(self, event, text):
-        self.hide_tip()
-        self.tip = tk.Toplevel(self.window)
-        self.tip.overrideredirect(True)
-        self.tip.attributes("-topmost", True)
-        tk.Label(self.tip, text=text, bg="#303846", fg="white", padx=8, pady=4,
-                 font=(FONT, 9)).pack()
-        self.tip.geometry(f"+{event.x_root+10}+{event.y_root-28}")
+            def do_POST(self):
+                route = self.route()
+                if route is None:
+                    return
+                if route not in ("/api/action", "/api/paste-image") or self.headers.get("X-Quick-Note") != dashboard.token:
+                    self.respond(404, {"error": "Not found"})
+                    return
+                origin = self.headers.get("Origin")
+                if origin and origin != f"http://127.0.0.1:{dashboard.server.server_port}":
+                    self.respond(403, {"error": "Invalid origin"})
+                    return
+                try:
+                    size = int(self.headers.get("Content-Length", "0"))
+                    if size < 1 or size > (64 * 1024 * 1024 if route == "/api/paste-image" else 1048576):
+                        raise ValueError("请求大小无效")
+                    if route == "/api/paste-image":
+                        encoded_metadata = self.headers.get("X-Quick-Note-Image", "")
+                        metadata = json.loads(base64.b64decode(encoded_metadata, validate=True).decode("utf-8"))
+                        category, day = metadata.get("category"), metadata.get("day")
+                        extension = metadata.get("extension")
+                        if category not in CATEGORIES or not isinstance(day, str) or date.fromisoformat(day).isoformat() != day:
+                            raise ValueError("图片保存位置无效")
+                        if extension not in (".png", ".bmp"):
+                            raise ValueError("不支持的剪贴板图片格式")
+                        image = (extension, self.rfile.read(size))
+                        if extension == ".png" and not image[1].startswith(b"\x89PNG\r\n\x1a\n"):
+                            raise ValueError("剪贴板图片数据无效")
+                        with dashboard.lock:
+                            path = storage.save_image_file(image, day)
+                        relative = path.relative_to(storage.ROOT / day).as_posix()
+                        self.respond(200, {"markdown": f"![图片]({relative})"})
+                        return
+                    data = json.loads(self.rfile.read(size))
+                    if not isinstance(data, dict):
+                        raise ValueError("请求格式无效")
+                    action = data.get("action")
+                    with dashboard.lock:
+                        if action == "selectTopic":
+                            name = data.get("topic")
+                            if name not in ("全部分类", *get_topics()):
+                                raise ValueError("分类不存在")
+                            dashboard.topic_filter = name
+                            result = True
+                        elif action == "addTopic":
+                            name = data.get("topic")
+                            if not isinstance(name, str):
+                                raise ValueError("分类名称无效")
+                            result = add_topic(name)
+                        elif action == "deleteTopic":
+                            name = data.get("topic")
+                            if not isinstance(name, str):
+                                raise ValueError("分类名称无效")
+                            result = delete_topic(name)
+                            if result and dashboard.topic_filter == data.get("topic"):
+                                dashboard.topic_filter = "全部分类"
+                        elif action in ("setTopic", "deleteEntry", "updateEntry"):
+                            category, day, index = data.get("category"), data.get("day"), data.get("index")
+                            if category not in CATEGORIES or not isinstance(day, str) or date.fromisoformat(day).isoformat() != day or type(index) is not int:
+                                raise ValueError("记录位置无效")
+                            if action == "updateEntry":
+                                result = update_entry(category, day, index, data.get("content"), data.get("original"))
+                            else:
+                                result = (set_topic(category, day, index, data.get("topic"))
+                                          if action == "setTopic" else delete_entry(category, day, index))
+                        elif action == "addEntry":
+                            category, day = data.get("category"), data.get("day")
+                            content, topic = data.get("content"), data.get("topic")
+                            if category not in CATEGORIES or not isinstance(day, str) or date.fromisoformat(day).isoformat() != day:
+                                raise ValueError("记录位置无效")
+                            if not isinstance(content, str) or not content.strip():
+                                raise ValueError("记录内容不能为空")
+                            content = content.replace("\r\n", "\n").replace("\r", "\n").strip()
+                            if storage.ENTRY.search(content):
+                                raise ValueError("正文不能包含记录标题格式（## 日期 时间），请调整该行")
+                            if topic not in get_topics():
+                                raise ValueError("分类不存在，请刷新后重试")
+                            result = save(category, content, topic, day)
+                        else:
+                            raise ValueError("未知操作")
+                    if not result:
+                        raise ValueError("操作失败，请刷新后重试")
+                    self.respond(200, {"ok": True})
+                except (ValueError, TypeError, KeyError) as exc:
+                    self.respond(400, {"error": str(exc)})
+                except (OSError, UnicodeError) as exc:
+                    self.respond(500, {"error": str(exc)})
 
-    def hide_tip(self):
-        if getattr(self, "tip", None) and self.tip.winfo_exists():
-            self.tip.destroy()
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.server.daemon_threads = True
+        self.url = f"http://127.0.0.1:{self.server.server_port}/{self.token}/"
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        root.bind("<Destroy>", self._shutdown, add="+")
 
-    def show_shortcuts(self):
-        if getattr(self, "shortcut_window", None) and self.shortcut_window.winfo_exists():
-            self.shortcut_window.deiconify()
-            self.shortcut_window.lift()
-            self.shortcut_window.focus_force()
-            return
-        popup = self.shortcut_window = tk.Toplevel(self.window)
-        popup.title("快捷键")
-        popup.transient(self.window)
-        popup.resizable(False, False)
-        panel = tk.Frame(popup, bg="white", padx=20, pady=16)
-        panel.pack(fill="both", expand=True)
-        for key, action in (("Alt+1", "记录待复习的内容"), ("Alt+2", "记录待补全的内容"),
-                            ("Alt+3", "打开总览")):
-            row = tk.Frame(panel, bg="white")
-            row.pack(fill="x", pady=4)
-            label(row, key, 10, "#315e9b", True, "white").pack(side="left", padx=(0, 16))
-            label(row, action, 10, bg="white").pack(side="left")
-        popup.bind("<Escape>", lambda _: popup.destroy())
-        popup.bind("<FocusOut>", lambda _: popup.after(100, self.close_shortcuts_if_unfocused))
-        popup.geometry(f"+{self.help_icon.winfo_rootx()+40}+{self.help_icon.winfo_rooty()-100}")
-        popup.focus_force()
-
-    def toggle_shortcuts(self):
-        if getattr(self, "shortcut_window", None) and self.shortcut_window.winfo_exists():
-            self.shortcut_window.destroy()
-        else:
-            self.show_shortcuts()
-
-    def dismiss_shortcuts(self, event):
-        if event.widget is not self.help_icon:
-            self.close_shortcuts()
-
-    def close_shortcuts_if_unfocused(self):
-        popup = getattr(self, "shortcut_window", None)
-        if popup and popup.winfo_exists():
-            try:
-                focus = popup.focus_get()
-            except tk.TclError:
-                focus = None
-            if focus is None or not str(focus).startswith(str(popup)):
-                popup.destroy()
-
-    def close_shortcuts(self):
-        popup = getattr(self, "shortcut_window", None)
-        if popup and popup.winfo_exists():
-            popup.destroy()
+    def _shutdown(self, event):
+        if event.widget is self.root:
+            self.server.shutdown()
+            self.server.server_close()
 
     def show(self):
-        if self.trend_visible:
-            self.toggle_trend()
-        self.refresh()
-        self.window.deiconify()
-        self.window.lift()
-        self.window.focus_force()
-
-    def toggle_trend(self):
-        self.trend_visible = not self.trend_visible
-        if self.trend_visible:
-            self.chart_box.pack(fill="x", before=self.columns, pady=(0, 20))
-            self.draw_chart()
-        else:
-            self.chart_box.pack_forget()
+        webbrowser.open(self.url)
 
     def refresh(self):
-        try:
-            self.days = load_days()
-        except (OSError, UnicodeError) as exc:
-            self.day_title.configure(text="读取失败")
-            return
-        self.date_list.delete(0, "end")
-        for day in self.days:
-            self.date_list.insert("end", f"  {day[5:].replace('-', ' / ')}" + ("  今天" if day == date.today().isoformat() else f"  {day[:4]}"))
-        if self.selected_day not in self.days:
-            self.selected_day = next(iter(self.days), None)
-        if self.selected_day:
-            index = list(self.days).index(self.selected_day)
-            self.date_list.selection_set(index)
-            self.date_list.see(index)
-        self.display_day()
-        if self.trend_visible:
-            self.draw_chart()
-
-    def select_date(self, _=None):
-        selection = self.date_list.curselection()
-        if selection:
-            self.selected_day = list(self.days)[selection[0]]
-            self.display_day()
-
-    def date_list_click(self, event):
-        """点日期列表空白时，不让 Listbox 自动选中最后一行并重绘卡片。"""
-        index = self.date_list.nearest(event.y)
-        bounds = self.date_list.bbox(index) if self.date_list.size() else None
-        if not bounds or not (bounds[1] <= event.y < bounds[1] + bounds[3]):
-            return "break"
-
-    def display_day(self):
-        day = self.selected_day
-        self.day_title.configure(text=day.replace("-", " / ") if day else "每日笔记")
-        groups = self.days.get(day, {"今日学习": [], "待补齐": []})
-        for category, panel in self.panels.items():
-            panel.display(groups[category])
-
-    def delete_card(self, category, index):
-        entries = self.days.get(self.selected_day, {}).get(category, [])
-        if index >= len(entries):
-            return
-        if not messagebox.askyesno("删除记录", "确定删除这条记录吗？", parent=self.window):
-            return
-        if delete_entry(category, self.selected_day, index):
-            self.refresh()
-
-    def change_topic(self, category, index, topic):
-        if set_topic(category, self.selected_day, index, topic):
-            self.refresh()
-
-    def draw_chart(self):
-        canvas = self.chart
-        canvas.delete("all")
-        days = sorted(self.days)
-        width = max(canvas.winfo_width(), len(days) * 70 + 60)
-        canvas.configure(scrollregion=(0, 0, width, 140))
-        canvas.create_text(12, 12, text="待复习", fill="#315e9b", anchor="w")
-        canvas.create_text(95, 12, text="待补全", fill="#97713a", anchor="w")
-        if not days:
-            canvas.create_text(180, 70, text="有记录后显示趋势", fill=MUTED)
-            return
-        maximum = max(1, *(len(v) for groups in self.days.values() for v in groups.values()))
-        canvas.create_line(35, 115, width - 20, 115, fill="#e6e9ee")
-        for category, color in (("今日学习", "#315e9b"), ("待补齐", "#97713a")):
-            points = []
-            for index, day in enumerate(days):
-                x = 50 + index * max(70, (width - 100) // max(1, len(days) - 1))
-                count = len(self.days[day][category])
-                y = 115 - count / maximum * 75
-                points.extend((x, y))
-                canvas.create_oval(x-4, y-4, x+4, y+4, fill=color, outline="white")
-                if count:
-                    canvas.create_text(x, y-12, text=str(count), fill=color)
-                if category == "今日学习":
-                    canvas.create_text(x, 130, text=day[5:], fill=MUTED)
-            if len(points) >= 4:
-                canvas.create_line(*points, fill=color, width=2)
-        canvas.xview_moveto(1)
+        # 浏览器在可见时定时重新读取本地记录。
+        pass
