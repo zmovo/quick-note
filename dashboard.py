@@ -3,7 +3,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 from datetime import date
 
-from storage import delete_entry, load_days
+from storage import TOPICS, delete_entry, load_days, set_topic
 
 BG, INK, MUTED = "#f7f8fa", "#20242c", "#818894"
 FONT = "Microsoft YaHei UI"
@@ -21,8 +21,9 @@ def button(parent, text, command):
 
 
 class RecordColumn:
-    def __init__(self, parent, title, color, column, on_delete):
+    def __init__(self, parent, title, color, column, on_delete, on_topic):
         self.on_delete = on_delete
+        self.on_topic = on_topic
         self.frame = tk.Frame(parent, bg=BG)
         self.frame.grid(row=0, column=column, sticky="nsew", padx=(0, 10) if column == 0 else (10, 0))
         head = tk.Frame(self.frame, bg=BG)
@@ -57,7 +58,7 @@ class RecordColumn:
         for area in self.areas:
             if area.winfo_exists() and area.winfo_width() > 100:
                 lines = area.count("1.0", "end-1c", "displaylines")
-                height = max(1, lines[0] if lines else 1)
+                height = max(1, (lines[0] if lines else 1) + 1)
                 if int(area.cget("height")) != height:
                     area.configure(height=height)
 
@@ -69,7 +70,7 @@ class RecordColumn:
         self.count.configure(text=str(len(entries)))
         if not entries:
             label(self.cards, "这一天还没有记录", 11, MUTED).pack(anchor="w", pady=24)
-        for index, (stamp, content) in enumerate(entries):
+        for index, (stamp, content, topic) in enumerate(entries):
             card = tk.Frame(self.cards, bg="white", highlightbackground="#e6e9ee", highlightthickness=1)
             card.pack(fill="x", pady=(0, 12), padx=(0, 4))
             card.bind("<Button-1>", lambda _, target=card: self.select_card(target))
@@ -82,6 +83,12 @@ class RecordColumn:
             top.bind("<Button-1>", lambda _, target=card: self.select_card(target))
             actions = tk.Frame(top, bg="white")
             actions.pack(side="right")
+            topic_box = ttk.Combobox(actions, values=TOPICS, state="readonly", width=7,
+                                     font=(FONT, 9))
+            topic_box.set(topic)
+            topic_box.pack(side="left", padx=(0, 6))
+            topic_box.bind("<<ComboboxSelected>>",
+                           lambda event, i=index, box=topic_box: self.on_topic(i, box.get()))
             copy = button(actions, "⧉", lambda value=content: self.copy(value))
             copy.configure(padx=7, pady=2, font=(FONT, 13))
             copy.pack(side="left")
@@ -139,6 +146,7 @@ class Dashboard:
                                     selectforeground="#285fba", activestyle="none", exportselection=False)
         self.date_list.pack(fill="both", expand=True)
         self.date_list.bind("<<ListboxSelect>>", self.select_date)
+        self.date_list.bind("<Button-1>", self.date_list_click, add="+")
         self.help_icon = tk.Canvas(sidebar, width=34, height=34, bg="white", highlightthickness=0,
                                    cursor="hand2")
         self.help_icon.pack(anchor="w", pady=(14, 0))
@@ -169,10 +177,12 @@ class Dashboard:
         self.columns.grid_columnconfigure((0, 1), weight=1, uniform="notes")
         self.columns.grid_rowconfigure(0, weight=1)
         self.panels = {
-            "今日学习": RecordColumn(self.columns, "需要复习", "#315e9b", 0,
-                                      lambda i: self.delete_card("今日学习", i)),
+            "今日学习": RecordColumn(self.columns, "待复习", "#315e9b", 0,
+                                      lambda i: self.delete_card("今日学习", i),
+                                      lambda i, t: self.change_topic("今日学习", i, t)),
             "待补齐": RecordColumn(self.columns, "待补全", "#97713a", 1,
-                                   lambda i: self.delete_card("待补齐", i)),
+                                   lambda i: self.delete_card("待补齐", i),
+                                   lambda i, t: self.change_topic("待补齐", i, t)),
         }
         self.refresh()
 
@@ -221,7 +231,7 @@ class Dashboard:
         popup.resizable(False, False)
         panel = tk.Frame(popup, bg="white", padx=20, pady=16)
         panel.pack(fill="both", expand=True)
-        for key, action in (("Alt+1", "记录需要复习的内容"), ("Alt+2", "记录待补全的内容"),
+        for key, action in (("Alt+1", "记录待复习的内容"), ("Alt+2", "记录待补全的内容"),
                             ("Alt+3", "打开总览")):
             row = tk.Frame(panel, bg="white")
             row.pack(fill="x", pady=4)
@@ -298,6 +308,13 @@ class Dashboard:
             self.selected_day = list(self.days)[selection[0]]
             self.display_day()
 
+    def date_list_click(self, event):
+        """点日期列表空白时，不让 Listbox 自动选中最后一行并重绘卡片。"""
+        index = self.date_list.nearest(event.y)
+        bounds = self.date_list.bbox(index) if self.date_list.size() else None
+        if not bounds or not (bounds[1] <= event.y < bounds[1] + bounds[3]):
+            return "break"
+
     def display_day(self):
         day = self.selected_day
         self.day_title.configure(text=day.replace("-", " / ") if day else "每日笔记")
@@ -314,13 +331,17 @@ class Dashboard:
         if delete_entry(category, self.selected_day, index):
             self.refresh()
 
+    def change_topic(self, category, index, topic):
+        if set_topic(category, self.selected_day, index, topic):
+            self.refresh()
+
     def draw_chart(self):
         canvas = self.chart
         canvas.delete("all")
         days = sorted(self.days)
         width = max(canvas.winfo_width(), len(days) * 70 + 60)
         canvas.configure(scrollregion=(0, 0, width, 140))
-        canvas.create_text(12, 12, text="需要复习", fill="#315e9b", anchor="w")
+        canvas.create_text(12, 12, text="待复习", fill="#315e9b", anchor="w")
         canvas.create_text(95, 12, text="待补全", fill="#97713a", anchor="w")
         if not days:
             canvas.create_text(180, 70, text="有记录后显示趋势", fill=MUTED)

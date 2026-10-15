@@ -7,24 +7,43 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent / "records"
 FILES = {"今日学习": "今日学习.md", "待补齐": "待补齐.md"}
-ENTRY = re.compile(r"(?m)^## (\d{4}-\d{2}-\d{2}) (\d{2}:\d{2})(?:[^\n]*)\n")
+ENTRY = re.compile(r"(?m)^## (\d{4}-\d{2}-\d{2}) (\d{2}:\d{2})(?: \[([^\]\n]+)\])?[^\n]*\n")
+TOPICS = ("Java", "雅思", "云架构", "未分类")
 
 
-def save(category: str, content: str) -> Path:
+def save(category: str, content: str, topic: str = "未分类") -> Path:
     now = datetime.now()
     folder = ROOT / now.date().isoformat()
     folder.mkdir(parents=True, exist_ok=True)
     path = folder / FILES[category]
     with path.open("a", encoding="utf-8", newline="\n") as file:
-        file.write(f"## {now:%Y-%m-%d %H:%M}\n{content}\n\n")
+        file.write(f"## {now:%Y-%m-%d %H:%M} [{topic}]\n{content}\n\n")
     return path
 
 
-def parse_entries(text: str) -> list[tuple[str, str]]:
+def parse_entries(text: str) -> list[tuple[str, str, str]]:
     matches = list(ENTRY.finditer(text))
     return [(f"{match[1]} {match[2]}", text[match.end():
-             matches[index + 1].start() if index + 1 < len(matches) else len(text)].strip())
+             matches[index + 1].start() if index + 1 < len(matches) else len(text)].strip(),
+             match[3] if match[3] in TOPICS else "未分类")
             for index, match in enumerate(matches)]
+
+
+def set_topic(category: str, day: str, index: int, topic: str) -> bool:
+    if topic not in TOPICS:
+        return False
+    path = ROOT / day / FILES[category]
+    if not path.exists():
+        return False
+    text = path.read_text(encoding="utf-8")
+    matches = list(ENTRY.finditer(text))
+    if index < 0 or index >= len(matches):
+        return False
+    match = matches[index]
+    header = f"## {match[1]} {match[2]} [{topic}]\n"
+    path.write_text(text[:match.start()] + header + text[match.end():],
+                    encoding="utf-8", newline="\n")
+    return True
 
 
 def delete_entry(category: str, day: str, index: int) -> bool:
@@ -50,7 +69,7 @@ def delete_entry(category: str, day: str, index: int) -> bool:
     return True
 
 
-def load_days() -> dict[str, dict[str, list[tuple[str, str]]]]:
+def load_days() -> dict[str, dict[str, list[tuple[str, str, str]]]]:
     result = {}
     if not ROOT.exists():
         return result

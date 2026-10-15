@@ -23,6 +23,15 @@ user32.GetMessageW.restype = ctypes.c_int
 user32.UnregisterHotKey.argtypes = (wintypes.HWND, ctypes.c_int)
 user32.GetAsyncKeyState.argtypes = (ctypes.c_int,)
 user32.GetClipboardSequenceNumber.restype = wintypes.DWORD
+user32.OpenClipboard.argtypes = (wintypes.HWND,)
+user32.OpenClipboard.restype = wintypes.BOOL
+user32.GetClipboardData.argtypes = (wintypes.UINT,)
+user32.GetClipboardData.restype = wintypes.HANDLE
+user32.CloseClipboard.restype = wintypes.BOOL
+kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+kernel32.GlobalLock.argtypes = (wintypes.HGLOBAL,)
+kernel32.GlobalLock.restype = ctypes.c_void_p
+kernel32.GlobalUnlock.argtypes = (wintypes.HGLOBAL,)
 user32.GetForegroundWindow.restype = wintypes.HWND
 user32.PostMessageW.argtypes = (wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM)
 user32.SetForegroundWindow.argtypes = (wintypes.HWND,)
@@ -83,6 +92,25 @@ def hotkey_listener(events):
             user32.UnregisterHotKey(None, ident)
 
 
+def read_clipboard_text():
+    """从系统剪贴板读取 Unicode 文本，剪贴板被占用时交给调用方重试。"""
+    if not user32.OpenClipboard(None):
+        return None
+    try:
+        handle = user32.GetClipboardData(13)  # CF_UNICODETEXT
+        if not handle:
+            return None
+        pointer = kernel32.GlobalLock(handle)
+        if not pointer:
+            return None
+        try:
+            return ctypes.wstring_at(pointer)
+        finally:
+            kernel32.GlobalUnlock(handle)
+    finally:
+        user32.CloseClipboard()
+
+
 def main():
     root = tk.Tk()
     root.withdraw()
@@ -139,19 +167,29 @@ def main():
             pending = False
             show_toast("保存失败", "没有复制到选中文字。请确认 Anki 中选中的文字可复制，再重试。", False)
             return
-        pending = False
         try:
-            content = root.clipboard_get()
+            content = read_clipboard_text()
+            if content is None:
+                if attempts < 40:
+                    root.after(50, save_selection, sequence, category_id, attempts + 1)
+                    return
+                pending = False
+                show_toast("保存失败", "系统剪贴板暂时不可读，请稍后重试。", False)
+                return
             if not content.strip():
+                if attempts < 40:
+                    root.after(50, save_selection, sequence, category_id, attempts + 1)
+                    return
+                pending = False
                 show_toast("保存失败", "选中内容没有文字", False)
                 return
             category = HOTKEYS[category_id][1]
             path = save(category, content)
+            pending = False
             dashboard.refresh()
             show_toast(f"✓ 已记入{category}", f"{len(content)} 字 · {path.parent.name}/{path.name}", True)
-        except tk.TclError:
-            show_toast("保存失败", "选中内容没有文字", False)
         except OSError as exc:
+            pending = False
             show_toast("保存失败", str(exc), False)
 
     def send_copy(sequence, category_id, alternate=False):
