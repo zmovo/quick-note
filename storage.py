@@ -27,6 +27,29 @@ def parse_entries(text: str) -> list[tuple[str, str]]:
             for index, match in enumerate(matches)]
 
 
+def delete_entry(category: str, day: str, index: int) -> bool:
+    """按日期和卡片顺序删除一条记录，避免时间相同的卡片删错。"""
+    path = ROOT / day / FILES[category]
+    if not path.exists():
+        return False
+    text = path.read_text(encoding="utf-8")
+    matches = list(ENTRY.finditer(text))
+    if index < 0 or index >= len(matches):
+        return False
+    start = matches[index].start()
+    end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+    updated = text[:start] + text[end:]
+    if not updated.strip():
+        path.unlink()
+        try:
+            path.parent.rmdir()
+        except OSError:
+            pass
+    else:
+        path.write_text(updated, encoding="utf-8", newline="\n")
+    return True
+
+
 def load_days() -> dict[str, dict[str, list[tuple[str, str]]]]:
     result = {}
     if not ROOT.exists():

@@ -1,9 +1,9 @@
 """以每日笔记为中心的总览；趋势按需展开。"""
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, messagebox
 from datetime import date
 
-from storage import load_days
+from storage import delete_entry, load_days
 
 BG, INK, MUTED = "#f7f8fa", "#20242c", "#818894"
 FONT = "Microsoft YaHei UI"
@@ -21,7 +21,8 @@ def button(parent, text, command):
 
 
 class RecordColumn:
-    def __init__(self, parent, title, color, column):
+    def __init__(self, parent, title, color, column, on_delete):
+        self.on_delete = on_delete
         self.frame = tk.Frame(parent, bg=BG)
         self.frame.grid(row=0, column=column, sticky="nsew", padx=(0, 10) if column == 0 else (10, 0))
         head = tk.Frame(self.frame, bg=BG)
@@ -68,7 +69,7 @@ class RecordColumn:
         self.count.configure(text=str(len(entries)))
         if not entries:
             label(self.cards, "这一天还没有记录", 11, MUTED).pack(anchor="w", pady=24)
-        for stamp, content in entries:
+        for index, (stamp, content) in enumerate(entries):
             card = tk.Frame(self.cards, bg="white", highlightbackground="#e6e9ee", highlightthickness=1)
             card.pack(fill="x", pady=(0, 12), padx=(0, 4))
             card.bind("<Button-1>", lambda _, target=card: self.select_card(target))
@@ -79,9 +80,14 @@ class RecordColumn:
             time_label.configure(cursor="hand2")
             time_label.bind("<Button-1>", lambda _, target=card: self.select_card(target))
             top.bind("<Button-1>", lambda _, target=card: self.select_card(target))
-            copy = button(top, "复制", lambda value=content: self.copy(value))
-            copy.configure(padx=4, pady=0)
-            copy.pack(side="right")
+            actions = tk.Frame(top, bg="white")
+            actions.pack(side="right")
+            copy = button(actions, "⧉", lambda value=content: self.copy(value))
+            copy.configure(padx=7, pady=2, font=(FONT, 13))
+            copy.pack(side="left")
+            remove = button(actions, "🗑", lambda i=index: self.on_delete(i))
+            remove.configure(padx=7, pady=2, font=(FONT, 13), fg="#a34b52")
+            remove.pack(side="left", padx=(2, 0))
             area = tk.Text(card, wrap="word", font=(FONT, 12), bg="white", fg=INK,
                            bd=0, relief="flat", highlightthickness=0,
                            highlightbackground="white", highlightcolor="white",
@@ -163,8 +169,10 @@ class Dashboard:
         self.columns.grid_columnconfigure((0, 1), weight=1, uniform="notes")
         self.columns.grid_rowconfigure(0, weight=1)
         self.panels = {
-            "今日学习": RecordColumn(self.columns, "需要复习", "#315e9b", 0),
-            "待补齐": RecordColumn(self.columns, "待补全", "#97713a", 1),
+            "今日学习": RecordColumn(self.columns, "需要复习", "#315e9b", 0,
+                                      lambda i: self.delete_card("今日学习", i)),
+            "待补齐": RecordColumn(self.columns, "待补全", "#97713a", 1,
+                                   lambda i: self.delete_card("待补齐", i)),
         }
         self.refresh()
 
@@ -296,6 +304,15 @@ class Dashboard:
         groups = self.days.get(day, {"今日学习": [], "待补齐": []})
         for category, panel in self.panels.items():
             panel.display(groups[category])
+
+    def delete_card(self, category, index):
+        entries = self.days.get(self.selected_day, {}).get(category, [])
+        if index >= len(entries):
+            return
+        if not messagebox.askyesno("删除记录", "确定删除这条记录吗？", parent=self.window):
+            return
+        if delete_entry(category, self.selected_day, index):
+            self.refresh()
 
     def draw_chart(self):
         canvas = self.chart
