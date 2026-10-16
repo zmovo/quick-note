@@ -166,6 +166,10 @@ def main():
     def save_selection(sequence, category_id, attempts=0):
         nonlocal pending
         if user32.GetClipboardSequenceNumber() == sequence:
+            if attempts == 15:
+                # Some browser pages ignore synthetic Ctrl+C but accept Ctrl+Insert.
+                send_copy(sequence, category_id, alternate=True)
+                return
             if attempts < 40:
                 root.after(40, save_selection, sequence, category_id, attempts + 1)
                 return
