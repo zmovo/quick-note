@@ -14,4 +14,4 @@ Windows 10/11，Python 3.11+，只使用 Python 标准库。双击 `启动碎片
 
 旧版记录已迁入对应日期目录，原文件备份在 `backup/legacy/`。双击启动文件时需要 `.pyw` 与 `pythonw.exe` 的文件关联；如未关联，可在项目目录运行 `pythonw 启动碎片记录.pyw`。
 
-总览支持 Markdown 图片：`![图片说明](assets/example.png)`，相对路径以记录所在日期目录为基准，也支持 HTTPS/HTTP 图片链接。本地图片须位于 `records/` 内，支持 PNG、JPEG、GIF、WebP、BMP。新增或编辑卡片时，可在内容框中按 Ctrl+V 粘贴剪贴板里的 PNG 或 BMP 图片，图片会保存到该卡片日期的 `assets/` 目录并插入正文。截图后（如 Win+Shift+S），也可直接按 Alt+1 / Alt+2 保存剪贴板图片；支持 PNG 和 Windows 位图，无需先粘贴。剪贴板同时含图片与文字时优先保存图片；若需记录文字，先复制文字以替换剪贴板图片。图片采集只读剪贴板，不发送 Ctrl+C，不主动截图或弹出窗口。点击总览中的图片可在新标签页查看原图。
+总览支持 Markdown 图片：`![图片说明](assets/example.png)`，相对路径以记录所在日期目录为基准，也支持 HTTPS/HTTP 图片链接。本地图片须位于 `records/` 内，支持 PNG、JPEG、GIF、WebP、BMP。新增或编辑卡片时，可在内容框中按 Ctrl+V 粘贴剪贴板里的 PNG 或 BMP 图片，图片会保存到该卡片日期的 `assets/` 目录并插入正文。Alt+1 / Alt+2 只保存当前选中的文字，不会保存剪贴板图片。点击总览中的图片可在新标签页查看原图。

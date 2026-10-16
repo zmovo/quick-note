@@ -6,8 +6,7 @@ import threading
 import tkinter as tk
 from ctypes import wintypes
 from dashboard import Dashboard
-from storage import get_topics, save, save_image
-from clipboard_image import read_image
+from storage import get_topics, save
 
 
 HOTKEYS = {1: (ord("1"), "今日学习"),
@@ -162,19 +161,16 @@ def main():
         style = user32.GetWindowLongW(hwnd, -20)
         user32.SetWindowLongW(hwnd, -20, style | 0x08000000)
         user32.ShowWindow(hwnd, 4)  # SW_SHOWNOACTIVATE
-        hide_job = root.after(2200 if success else 4000, toast.destroy)
+        hide_job = root.after(5000 if success else 8000, toast.destroy)
 
     def save_selection(sequence, category_id, attempts=0):
         nonlocal pending
         if user32.GetClipboardSequenceNumber() == sequence:
-            if attempts == 15:
-                send_copy(sequence, category_id, alternate=True)
-                return
             if attempts < 40:
                 root.after(40, save_selection, sequence, category_id, attempts + 1)
                 return
             pending = False
-            show_toast("保存失败", "目标窗口没有响应复制按键。请保持文字选中并重试。", False)
+            show_toast("保存失败", "没有复制到文字。请保持文字选中，松开 Alt 后重试。", False)
             return
         try:
             content = read_clipboard_text()
@@ -190,7 +186,7 @@ def main():
                     root.after(50, save_selection, sequence, category_id, attempts + 1)
                     return
                 pending = False
-                show_toast("保存失败", "选中内容没有文字", False)
+                show_toast("保存失败", "复制到的内容为空，请保持文字选中后重试。", False)
                 return
             category = HOTKEYS[category_id][1]
             with dashboard.lock:
@@ -199,9 +195,9 @@ def main():
             dashboard.refresh()
             show_toast(f"✓ 已记入{category}",
                        f"{pending_topic} · {len(content)} 字 · {path.parent.name}/{path.name}", True)
-        except OSError as exc:
+        except Exception as exc:
             pending = False
-            show_toast("保存失败", str(exc), False)
+            show_toast("保存失败", f"{type(exc).__name__}: {exc}", False)
 
     def send_copy(sequence, category_id, alternate=False):
         nonlocal pending
@@ -216,27 +212,7 @@ def main():
         root.after(180, save_selection, sequence, category_id, 16 if alternate else 0)
 
     def capture(category_id, attempts=0):
-        nonlocal pending
-        try:
-            image = read_image()
-            if image is None:
-                copy_selection(category_id)
-                return
-            category = HOTKEYS[category_id][1]
-            with dashboard.lock:
-                path = save_image(category, image, pending_topic)
-            pending = False
-            dashboard.refresh()
-            show_toast(f"✓ 已记入{category}", f"{pending_topic} · 图片 · {path.parent.name}/{path.name}", True)
-        except BlockingIOError:
-            if attempts < 20:
-                root.after(50, capture, category_id, attempts + 1)
-            else:
-                pending = False
-                show_toast("保存失败", "剪贴板暂时被占用，请稍后重试。", False)
-        except (OSError, ValueError) as exc:
-            pending = False
-            show_toast("保存失败", str(exc), False)
+        copy_selection(category_id)
 
     def copy_selection(category_id, attempts=0):
         nonlocal pending
@@ -269,7 +245,8 @@ def main():
                         capture(value)
                 else:
                     show_toast("无法启动热键", value, False)
-                    root.after(4000, root.destroy)
+                    # Keep the dashboard open so the user can still manage records.
+                    root.after(5000, poll)
                     return
         except queue.Empty:
             pass

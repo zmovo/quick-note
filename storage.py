@@ -64,6 +64,7 @@ def save(category: str, content: str, topic: str = "未分类", day: str | None 
 
 def save_image(category: str, image: tuple[str, bytes], topic: str = "未分类",
                day: str | None = None) -> Path:
+    day = day or datetime.now().date().isoformat()
     path = save_image_file(image, day)
     try:
         return save(category, f"![截图](assets/{path.name})", topic, day)
